@@ -1,58 +1,26 @@
-use std::ops::ControlFlow;
-
 use crate::Request;
+use std::{io::Read, ops::ControlFlow};
 
 use super::Part;
-use crate::types::PartialResponse;
 
 pub fn fetch_streaming_blocking(
     request: Request,
     on_data: Box<dyn Fn(crate::Result<Part>) -> ControlFlow<()> + Send>,
 ) {
-    let mut req = ureq::request(&request.method, &request.url);
-
-    for (k, v) in &request.headers {
-        req = req.set(k, v);
-    }
-
-    let resp = if request.body.is_empty() {
-        req.call()
-    } else {
-        req.send_bytes(&request.body)
-    };
-
-    let (ok, resp) = match resp {
-        Ok(resp) => (true, resp),
-        Err(ureq::Error::Status(_, resp)) => (false, resp), // Still read the body on e.g. 404
-        Err(ureq::Error::Transport(err)) => {
-            on_data(Err(err.to_string()));
+    let (ureq_resp, partial_response) = match crate::ureq_ext::get_response(&request) {
+        Ok(resp) => resp,
+        Err(err) => {
+            on_data(Err(err));
             return;
         }
     };
 
-    let url = resp.get_url().to_owned();
-    let status = resp.status();
-    let status_text = resp.status_text().to_owned();
-    let mut headers = crate::Headers::default();
-    for key in &resp.headers_names() {
-        if let Some(value) = resp.header(key) {
-            headers.insert(key.to_ascii_lowercase(), value.to_owned());
-        }
-    }
-    headers.sort(); // It reads nicer, and matches web backend.
-
-    let response = PartialResponse {
-        url,
-        ok,
-        status,
-        status_text,
-        headers,
-    };
-    if on_data(Ok(Part::Response(response))).is_break() {
+    if on_data(Ok(Part::Response(partial_response))).is_break() {
         return;
     };
 
-    let mut reader = resp.into_reader();
+    let (_, body) = ureq_resp.into_parts();
+    let mut reader = body.into_reader();
     loop {
         let mut buf = vec![0; 2048];
         match reader.read(&mut buf) {

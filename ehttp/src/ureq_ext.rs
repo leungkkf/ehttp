@@ -105,13 +105,13 @@ mod tests {
 
         // Create a mock on the server.
         let mock = mock_get(&server, 200, "ohi");
-        let mut request = Request::get(&server.url("/translate?word=hello"));
+        let mut request = Request::get(server.url("/translate?word=hello"));
 
         request.headers.insert("Authorization", "token 123456789");
 
         let (mut ureq_resp, partial_resp) = get_response(&request).unwrap();
 
-        assert_eq!(partial_resp.ok, true);
+        assert!(partial_resp.ok);
         assert_eq!(partial_resp.status, 200);
         assert_eq!(partial_resp.headers.get("content-type"), Some("text/html"));
         assert_eq!(partial_resp.headers.get("content-length"), Some("3"));
@@ -131,13 +131,13 @@ mod tests {
 
         // Create a mock on the server.
         let mock = mock_get(&server, 403, "not allowed");
-        let mut request = Request::get(&server.url("/translate?word=hello"));
+        let mut request = Request::get(server.url("/translate?word=hello"));
 
         request.headers.insert("Authorization", "token 123456789");
 
         let (mut ureq_resp, partial_resp) = get_response(&request).unwrap();
 
-        assert_eq!(partial_resp.ok, false);
+        assert!(!partial_resp.ok);
         assert_eq!(partial_resp.status, 403);
         assert_eq!(partial_resp.headers.get("content-type"), Some("text/html"));
         assert_eq!(partial_resp.headers.get("content-length"), Some("11"));
@@ -160,14 +160,11 @@ mod tests {
 
         // Create a mock on the server.
         let mock = mock_post(&server, 201, "The Lord of the Rings");
-        let request = Request::post(
-            &server.url("/books"),
-            b"The Fellowship of the Ring".to_vec(),
-        );
+        let request = Request::post(server.url("/books"), b"The Fellowship of the Ring".to_vec());
 
         let (mut ureq_resp, partial_resp) = get_response(&request).unwrap();
 
-        assert_eq!(partial_resp.ok, true);
+        assert!(partial_resp.ok);
         assert_eq!(partial_resp.status, 201);
         assert_eq!(partial_resp.headers.get("content-length"), Some("21"));
         assert_eq!(partial_resp.status_text, "Created");

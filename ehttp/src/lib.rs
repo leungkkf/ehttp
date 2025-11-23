@@ -75,7 +75,6 @@ pub async fn fetch_async(request: Request) -> Result<Response> {
 }
 
 mod types;
-mod ureq_ext;
 pub use types::{Error, Headers, PartialResponse, Request, Response, Result};
 
 #[cfg(target_arch = "wasm32")]
@@ -90,6 +89,9 @@ pub use native::fetch_blocking;
 mod web;
 #[cfg(target_arch = "wasm32")]
 pub use web::spawn_future;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod ureq_ext;
 
 #[cfg(feature = "streaming")]
 pub mod streaming;

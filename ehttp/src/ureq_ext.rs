@@ -75,20 +75,35 @@ pub(crate) fn get_response(
 mod tests {
     use super::*;
     use httpmock::{prelude::*, Mock};
+    use std::time::Duration;
 
-    fn mock_get<'a>(server: &'a MockServer, status: u16, body: &str) -> Mock<'a> {
-        // Create a mock on the server.
+    /// Set up a mock GET server.
+    fn mock_get<'a>(
+        server: &'a MockServer,
+        status: u16,
+        body: &str,
+        sleep: Option<Duration>,
+    ) -> Mock<'a> {
         server.mock(|when, then| {
             when.method(GET)
                 .path("/translate")
                 .header("Authorization", "token 123456789")
                 .query_param("word", "hello");
+
             then.status(status)
                 .header("content-type", "text/html")
-                .body(body);
+                .body(body)
+                .and(|then| {
+                    if let Some(sleep) = sleep {
+                        then.delay(sleep)
+                    } else {
+                        then
+                    }
+                });
         })
     }
 
+    /// Set up a mock POST server.
     fn mock_post<'a>(server: &'a MockServer, status: u16, body: &str) -> Mock<'a> {
         server.mock(|when, then| {
             when.method(POST)
@@ -104,7 +119,7 @@ mod tests {
         let server = MockServer::start();
 
         // Create a mock on the server.
-        let mock = mock_get(&server, 200, "ohi");
+        let mock = mock_get(&server, 200, "ohi", None);
         let mut request = Request::get(server.url("/translate?word=hello"));
 
         request.headers.insert("Authorization", "token 123456789");
@@ -130,13 +145,15 @@ mod tests {
         let server = MockServer::start();
 
         // Create a mock on the server.
-        let mock = mock_get(&server, 403, "not allowed");
+        let mock = mock_get(&server, 403, "not allowed", None);
+        // Send a GET resquest with the wrong authetication.
         let mut request = Request::get(server.url("/translate?word=hello"));
 
         request.headers.insert("Authorization", "token 123456789");
 
         let (mut ureq_resp, partial_resp) = get_response(&request).unwrap();
 
+        // Expect not OK.
         assert!(!partial_resp.ok);
         assert_eq!(partial_resp.status, 403);
         assert_eq!(partial_resp.headers.get("content-type"), Some("text/html"));
@@ -160,10 +177,12 @@ mod tests {
 
         // Create a mock on the server.
         let mock = mock_post(&server, 201, "The Lord of the Rings");
+        // Send a POST request.
         let request = Request::post(server.url("/books"), b"The Fellowship of the Ring".to_vec());
 
         let (mut ureq_resp, partial_resp) = get_response(&request).unwrap();
 
+        // Expect OK.
         assert!(partial_resp.ok);
         assert_eq!(partial_resp.status, 201);
         assert_eq!(partial_resp.headers.get("content-length"), Some("21"));
@@ -175,6 +194,57 @@ mod tests {
             "The Lord of the Rings"
         );
 
+        mock.assert();
+    }
+
+    #[test]
+    fn test_get_timeout() {
+        // Start a lightweight mock server.
+        let server = MockServer::start();
+
+        // Create a mock on the server without a delay.
+        let mock = mock_get(&server, 200, "ohi", None);
+        // Specify a timeout in the request.
+        let mut request = Request::get(server.url("/translate?word=hello"))
+            .with_timeout(Some(Duration::from_millis(200)));
+
+        request.headers.insert("Authorization", "token 123456789");
+
+        let (mut ureq_resp, partial_resp) = get_response(&request).unwrap();
+
+        assert!(partial_resp.ok);
+        assert_eq!(partial_resp.status, 200);
+        assert_eq!(partial_resp.headers.get("content-type"), Some("text/html"));
+        assert_eq!(partial_resp.headers.get("content-length"), Some("3"));
+        assert_eq!(partial_resp.status_text, "OK");
+        assert!(partial_resp.url.ends_with("/translate?word=hello"));
+
+        assert_eq!(ureq_resp.body_mut().read_to_string().unwrap(), "ohi");
+
+        // Ensure the specified mock was called exactly one time.
+        mock.assert();
+    }
+
+    #[test]
+    fn test_get_timeout_with_err() {
+        // Start a lightweight mock server.
+        let server = MockServer::start();
+
+        // Create a mock on the server with a delay in response.
+        let mock = mock_get(&server, 200, "ohi", Some(Duration::from_secs(1)));
+        // Set timeout smaller than the server delay.
+        let mut request = Request::get(server.url("/translate?word=hello"))
+            .with_timeout(Some(Duration::from_millis(200)));
+
+        request.headers.insert("Authorization", "token 123456789");
+
+        // Expect a timeout error.
+        assert!(match get_response(&request) {
+            Ok(_) => false,
+            Err(e) => e.contains("timeout"),
+        });
+
+        // Ensure the specified mock was called exactly one time.
         mock.assert();
     }
 }
